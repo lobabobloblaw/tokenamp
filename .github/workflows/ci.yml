@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    # Same image and toolchain as release.yml, so CI catches what would break a release.
+    # Only the Swift toolchain is used: no xcodebuild/XCTest (see CLAUDE.md).
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Swift toolchain
+        run: swift --version
+
+      # Package.swift declares no external SwiftPM dependencies, so there is no Package.resolved
+      # to key a cache on (see CLAUDE.md's target graph: UsageModel/UsageCore/TokenampKit/Tokenamp
+      # are all local targets). Nothing to restore here.
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Check generated sprite code is up to date
+        run: python3 scripts/gen_sprites_swift.py --check
+
+      - name: Build Tokenamp.app
+        run: scripts/build_app.sh
+
+      - name: Selftest - UI/skin engine
+        run: build/Tokenamp.app/Contents/MacOS/Tokenamp --selftest
+
+      - name: Selftest - data layer
+        run: swift run usage-dump --selftest
+
+      - name: Install skin toolkit dependencies
+        run: python3 -m pip install --upgrade pip numpy Pillow
+
+      - name: Selftest - skin toolkit
+        run: cd skins && python3 -m skinkit.selftest
+
+      # Compares archive contents rather than bytes: the runner's zlib may deflate differently
+      # from the one that packed the committed .wsz, even when every sheet is identical.
+      - name: Skin sources match the committed .wsz files
+        run: |
+          python3 skins/build.py --all --no-preview
+          python3 - <<'EOF'
+          import subprocess, sys, zipfile, io, glob
+          bad = []
+          for path in sorted(glob.glob("skins/dist/*.wsz")):
+              old = subprocess.run(["git", "show", f"HEAD:{path}"], capture_output=True, check=True).stdout
+              a, b = zipfile.ZipFile(io.BytesIO(old)), zipfile.ZipFile(path)
+              if {n: a.read(n) for n in a.namelist()} != {n: b.read(n) for n in b.namelist()}:
+                  bad.append(path)
+          if bad:
+              sys.exit("rebuilt skins differ from the committed ones (run skins/build.py --all): " + ", ".join(bad))
+          print("all skins match")
+          EOF
+
+      - name: Offscreen snapshot smoke test
+        run: |
+          mkdir -p "$RUNNER_TEMP/shots"
+          build/Tokenamp.app/Contents/MacOS/Tokenamp --snapshot "$RUNNER_TEMP/shots" --demo --scale 2
+
+      - name: Upload snapshot PNGs
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshots
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: error
