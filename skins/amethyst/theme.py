@@ -94,7 +94,8 @@ class Amethyst(Theme):
     def readme(self):
         return ("Amethyst\n========\n\n" + self.description + "\n\n"
                 "A classic Winamp 2.x skin for Tokenamp, painted in code with skinkit.\n"
-                "Board: TA-5100 REV C.  MADE ON EARTH.\n")
+                "Board: TA-5100 REV C.  MADE ON EARTH.\n"
+                "https://github.com/lobabobloblaw/tokenamp\n")
 
     # ---- equaliser ---------------------------------------------------------
     def paint_eq_background(self, c): EQ.paint(c, self)

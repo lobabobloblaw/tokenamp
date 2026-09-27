@@ -28,6 +28,8 @@ from . import fonts, fx
 from .canvas import Canvas, Colour, darken, lighten, mix, parse_colour, with_alpha
 from .spec import Rect, lrect, lval
 
+PROJECT_URL = "https://github.com/lobabobloblaw/tokenamp"
+
 
 class Theme:
     """The Base skin, and the base class for every other skin."""
@@ -742,7 +744,8 @@ class Theme:
                 f"{'=' * len(self.name)}\n\n"
                 f"{self.description}\n\n"
                 f"A classic Winamp 2.x skin for Tokenamp, painted with skinkit.\n"
-                f"Author: {self.author}\n")
+                f"Author: {self.author}\n"
+                f"{PROJECT_URL}\n")
 
     # ==================================================================
     # EQUALISER WINDOW  (275x116, window="eq")
