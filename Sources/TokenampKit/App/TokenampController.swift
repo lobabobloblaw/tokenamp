@@ -385,9 +385,8 @@ public final class TokenampController: NSObject {
         s.fieldSpan = prefs.fieldSpan
         s.fieldWidth = prefs.fieldWidth
         s.fieldHeight = prefs.fieldHeight
-        var latched: Set<String> = prefs.alwaysOnTop ? ["A"] : []
-        if field?.isVisible == true { latched.insert("V") }
-        s.latchedClutter = latched
+        s.latchedClutter = ViewState.latchedClutter(alwaysOnTop: prefs.alwaysOnTop,
+                                                    fieldOpen: field?.isVisible == true)
         s.eqRange = prefs.eqRange
         s.eqMeasure = prefs.eqMeasure
         s.eqRelative = prefs.eqRelative

@@ -25,8 +25,11 @@ public enum SnapshotRunner {
         var state = makeState(snapshot: snapshot, scale: scale, now: now,
                               playlistRowHeight: skin.playlistRowHeight)
         if stateName?.lowercased() == "pressed" {
-            // Exercise the alternate sprites: play held down, EQ toggle held, volume thumb grabbed.
+            // Exercise the alternate sprites: play held down, EQ toggle held (on an open EQ, so
+            // the pressed-and-lit sprite), volume thumb grabbed, A latched where the normal state
+            // latches V.
             state.pressed = [.play, .eqToggle, .volume, .eqOn, .plScroll, .clutter("D")]
+            state.eqOpen = true
             state.latchedClutter = ["A"]
             state.playlistSelection = min(1, max(0, snapshot.sessionsToday.count - 1))
         }
@@ -75,7 +78,8 @@ public enum SnapshotRunner {
         }
 
         // all.png: the three classic windows stacked, main over EQ over playlist (a contact sheet,
-        // not the default layout, which is main / Sessions / Token Flow with the EQ closed).
+        // not the default layout, which is main / Sessions / Token Flow with the EQ closed). The
+        // main window is main.png's, so its toggles show the default state: EQ unlit, V latched.
         let totalH = Layout.Main.size.h + Layout.EQ.size.h + state.playlistHeight
         let allImage = try render(width: Layout.Main.size.w, height: totalH, scale: scale) { c in
             MainRenderer.draw(c, skin: skin, snapshot: snapshot, state: state)
@@ -251,8 +255,12 @@ public enum SnapshotRunner {
         state.workLED = true
         state.shuffleOn = false
         state.repeatOn = true
-        state.eqOpen = true
+        // The window indicators of the default layout, as TokenampController.viewState shows them
+        // on a first run (Preferences' registered defaults): EQ closed, so its toggle is unlit;
+        // Sessions open; Token Flow open, so V is latched; not always-on-top, so A is not.
+        state.eqOpen = false
         state.plOpen = true
+        state.latchedClutter = ViewState.latchedClutter(alwaysOnTop: false, fieldOpen: true)
         state.mainIsKey = true
         state.eqIsKey = true
         state.playlistIsKey = true

@@ -161,6 +161,14 @@ public struct ViewState {
 
     public init() {}
 
+    /// The clutter letters latched by window state: A while always-on-top, V while the Token Flow
+    /// window is open. One definition, so the app and `--snapshot` light the same letters.
+    public static func latchedClutter(alwaysOnTop: Bool, fieldOpen: Bool) -> Set<String> {
+        var latched: Set<String> = alwaysOnTop ? ["A"] : []
+        if fieldOpen { latched.insert("V") }
+        return latched
+    }
+
     public func isPressed(_ id: ControlID) -> Bool { pressed.contains(id) }
 
     public var isStopped: Bool { playState == .stopped }
