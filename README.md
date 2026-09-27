@@ -50,6 +50,13 @@ Download `Tokenamp-<version>.zip` from the [latest release](https://github.com/l
 unzip it and move **Tokenamp** to Applications. It runs on Apple silicon and Intel Macs with
 macOS 13 or later.
 
+Or with [Homebrew](https://brew.sh):
+
+```sh
+brew trust --cask lobabobloblaw/tap/tokenamp    # Homebrew 7+ asks you to trust third-party casks
+brew install --cask lobabobloblaw/tap/tokenamp
+```
+
 Tokenamp reads from a signed-in [Claude Code](https://claude.com/claude-code) on the same Mac.
 To try it on made-up data instead, run `/Applications/Tokenamp.app/Contents/MacOS/Tokenamp --demo`.
 

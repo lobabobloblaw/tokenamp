@@ -30,8 +30,9 @@ selftest checked) only where Rosetta is installed, which CI installs.
 
 ## Update the Homebrew tap
 
-One-time: create the public repository `lobabobloblaw/homebrew-tap` with a `Casks/` directory.
-Users then install with `brew install --cask lobabobloblaw/tap/tokenamp`.
+The tap `lobabobloblaw/homebrew-tap` exists (created for 1.0.0) with the cask in `Casks/`.
+Users then run `brew trust --cask lobabobloblaw/tap/tokenamp` (Homebrew 7 refuses
+untrusted third-party casks) and `brew install --cask lobabobloblaw/tap/tokenamp`.
 
 After each release is published:
 
