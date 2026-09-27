@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the Developer ID signature (hardened runtime), used by
+  scripts/package_release.sh when TOKENAMP_SIGN_IDENTITY is set.
+
+  Deliberately empty. Tokenamp is not sandboxed, so nothing it does needs an entitlement:
+
+  - Keychain: the "Claude Code-credentials" item is read by running /usr/bin/security
+    (LimitsClient.swift), a separate Apple-signed process. The hardened runtime does not restrict
+    spawning it, and no keychain-access-groups entitlement is involved.
+  - Network: an outbound HTTPS GET to api.anthropic.com. com.apple.security.network.client only
+    matters inside the App Sandbox.
+  - Notifications: UNUserNotificationCenter local notifications need no entitlement outside the
+    sandbox (the user grants permission at runtime).
+  - Files: ~/.claude/projects, ~/.claude/.credentials.json, ~/Library/Application Support/Tokenamp
+    and skins the user opens. Plain POSIX reads outside the sandbox; privacy (TCC) prompts, where
+    macOS shows any, are granted at runtime and are not entitlements.
+  - Code: only system frameworks and the OS Swift runtime are loaded (no JIT, no plug-ins, no
+    DYLD_* variables, no unsigned executable memory), so library validation stays on and no
+    com.apple.security.cs.* exception is needed.
+
+  Never add com.apple.security.get-task-allow here: notarization rejects it.
+-->
+<plist version="1.0">
+<dict>
+</dict>
+</plist>

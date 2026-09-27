@@ -7,7 +7,15 @@
 #
 # Re-runnable: the app directory is rebuilt from scratch every time.
 #
-#   scripts/build_app.sh [--debug]
+#   scripts/build_app.sh [--debug] [--universal]
+#
+#   --debug       debug configuration (default: release)
+#   --universal   arm64 + x86_64 in one binary. The other architecture is cross-compiled with
+#                 `--triple` into its own scratch path (.build-app-<arch>) and the two are joined
+#                 with lipo. Opt-in because it doubles a clean build; releases use it.
+#
+# The version is read from VERSION at the repo root (MAJOR.MINOR.PATCH, the single source of
+# truth) and written into CFBundleShortVersionString and CFBundleVersion.
 #
 set -euo pipefail
 
@@ -15,27 +23,79 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 CONFIG="release"
+UNIVERSAL=0
+for arg in "$@"; do
+    case "$arg" in
+        --debug) CONFIG="debug" ;;
+        --universal) UNIVERSAL=1 ;;
+        *) echo "error: unknown option '$arg' (usage: scripts/build_app.sh [--debug] [--universal])" >&2; exit 2 ;;
+    esac
+done
+
 SCRATCH=".build-app"
-if [[ "${1:-}" == "--debug" ]]; then
-    CONFIG="debug"
+# Keep in step with `platforms: [.macOS(.v13)]` in Package.swift.
+MIN_MACOS="13.0"
+
+VERSION="$(tr -d '[:space:]' < VERSION)"
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "error: VERSION must be MAJOR.MINOR.PATCH (got '$VERSION')" >&2
+    exit 1
 fi
 
 APP="build/Tokenamp.app"
 CONTENTS="$APP/Contents"
 
-echo "==> swift build -c $CONFIG --scratch-path $SCRATCH --product Tokenamp"
-swift build -c "$CONFIG" --scratch-path "$SCRATCH" --product Tokenamp
+# The host architecture builds in the usual scratch path, so a universal build reuses the dev
+# cache; any other architecture is cross-compiled into .build-app-<arch>.
+HOST_ARCH="$(uname -m)"
+SLICE_BIN=""
+build_slice() {
+    local arch="$1" scratch="$SCRATCH"
+    local triple=()
+    if [[ "$arch" != "$HOST_ARCH" ]]; then
+        scratch="$SCRATCH-$arch"
+        triple=(--triple "$arch-apple-macosx$MIN_MACOS")
+    fi
+    # ${a[@]+"${a[@]}"}: an empty array is "unbound" under `set -u` in macOS's bash 3.2.
+    echo "==> swift build -c $CONFIG --scratch-path $scratch --product Tokenamp ${triple[*]+${triple[*]}}"
+    swift build -c "$CONFIG" --scratch-path "$scratch" --product Tokenamp ${triple[@]+"${triple[@]}"}
+    SLICE_BIN="$(swift build -c "$CONFIG" --scratch-path "$scratch" --product Tokenamp ${triple[@]+"${triple[@]}"} --show-bin-path)/Tokenamp"
+    if [[ ! -x "$SLICE_BIN" ]]; then
+        echo "error: built binary not found at $SLICE_BIN" >&2
+        exit 1
+    fi
+    if ! lipo "$SLICE_BIN" -verify_arch "$arch"; then
+        echo "error: $SLICE_BIN is not $arch (lipo: $(lipo -archs "$SLICE_BIN"))" >&2
+        exit 1
+    fi
+}
 
-BIN="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH" --product Tokenamp --show-bin-path)/Tokenamp"
-if [[ ! -x "$BIN" ]]; then
-    echo "error: built binary not found at $BIN" >&2
-    exit 1
+if [[ "$UNIVERSAL" -eq 1 ]]; then
+    build_slice arm64
+    BIN_ARM64="$SLICE_BIN"
+    build_slice x86_64
+    BIN_X86_64="$SLICE_BIN"
+else
+    build_slice "$HOST_ARCH"
+    BIN="$SLICE_BIN"
 fi
 
-echo "==> assembling $APP"
+echo "==> assembling $APP (version $VERSION)"
 rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/Skins"
-cp "$BIN" "$CONTENTS/MacOS/Tokenamp"
+if [[ "$UNIVERSAL" -eq 1 ]]; then
+    lipo -create -output "$CONTENTS/MacOS/Tokenamp" "$BIN_ARM64" "$BIN_X86_64"
+    # One arch per -verify_arch: this lipo rejects a list ("requires exactly one input file").
+    for arch in arm64 x86_64; do
+        if ! lipo "$CONTENTS/MacOS/Tokenamp" -verify_arch "$arch"; then
+            echo "error: lipo did not produce an arm64 + x86_64 binary (missing $arch)" >&2
+            exit 1
+        fi
+    done
+else
+    cp "$BIN" "$CONTENTS/MacOS/Tokenamp"
+fi
+echo "    architectures: $(lipo -archs "$CONTENTS/MacOS/Tokenamp")"
 
 ICON_LINE=""
 if [[ -f "assets/Tokenamp.icns" ]]; then
@@ -65,14 +125,14 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>${VERSION}</string>
 	<key>CFBundleVersion</key>
-	<string>1.0</string>
+	<string>${VERSION}</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 ${ICON_LINE}
 	<key>LSMinimumSystemVersion</key>
-	<string>13.0</string>
+	<string>${MIN_MACOS}</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
 	<key>NSHighResolutionCapable</key>
@@ -144,5 +204,5 @@ fi
 echo "    signature ok"
 
 echo
-echo "built $APP"
+echo "built $APP  (version $VERSION, $(lipo -archs "$CONTENTS/MacOS/Tokenamp"))"
 echo "run it with:  open $APP            (or: $CONTENTS/MacOS/Tokenamp --demo)"

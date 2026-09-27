@@ -1,0 +1,243 @@
+# Release: on a pushed tag v<VERSION>, test, package and publish a GitHub Release with
+# Tokenamp-<version>.zip and its .sha256 attached.
+#
+# Unsigned today: without the secrets below the zip is ad-hoc signed and not notarized.
+# Notarization turns on by adding repository secrets, with no edits to this file:
+#
+#   MACOS_CERTIFICATE_P12_BASE64   base64 of a "Developer ID Application" .p12 (certificate + key)
+#   MACOS_CERTIFICATE_PASSWORD     the .p12 export password
+#   APPLE_ID                       Apple ID email of the developer account
+#   APPLE_TEAM_ID                  10-character Team ID
+#   APPLE_APP_SPECIFIC_PASSWORD    app-specific password for that Apple ID (account.apple.com)
+#
+# The certificate alone gives a Developer ID signature with the hardened runtime; the three APPLE_*
+# secrets add notarization and stapling, and then the job fails rather than ship unnotarized.
+# See packaging/README.md.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # create the release and upload its assets
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Test, package and publish
+    runs-on: macos-26 # Apple silicon image, pinned rather than macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash # bash -eo pipefail, so a failing test piped into tail still fails the step
+    env:
+      # Pinned Xcode. Installed versions are listed in the image readme:
+      # https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      # Secrets are not allowed in step-level `if:`, so expose whether they are set.
+      HAS_SIGNING_CERT: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 != '' }}
+      HAS_NOTARY_CREDS: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD != '' }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the tag against VERSION
+        id: version
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          case "$GITHUB_REF_NAME" in
+            "v$VERSION") PRERELEASE=false ;;
+            "v$VERSION"-*) PRERELEASE=true ;;
+            *) echo "::error::tag $GITHUB_REF_NAME does not match VERSION ($VERSION); expected v$VERSION or v$VERSION-<suffix>"; exit 1 ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+      - name: Show the toolchain
+        run: |
+          if [ ! -d "$DEVELOPER_DIR" ]; then
+            echo "::error::$DEVELOPER_DIR is not on this image; pick one of:"
+            ls -d /Applications/Xcode*.app
+            exit 1
+          fi
+          sw_vers
+          swift --version
+          xcrun --find notarytool
+          xcrun --find stapler
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install numpy and Pillow
+        run: |
+          python -m pip install --disable-pip-version-check numpy Pillow
+          python -c "import numpy, PIL; print('numpy', numpy.__version__, '/ Pillow', PIL.__version__)"
+
+      - name: "Test: skin toolkit"
+        working-directory: skins
+        run: python -m skinkit.selftest
+
+      - name: "Test: data layer"
+        run: swift run usage-dump --selftest
+
+      - name: Install Rosetta (to test the x86_64 slice)
+        run: |
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            echo "Rosetta is already installed"
+          elif ! sudo softwareupdate --install-rosetta --agree-to-license; then
+            echo "::warning::Rosetta is unavailable; the x86_64 slice is built but its selftest is skipped"
+          fi
+
+      - name: Import the Developer ID certificate
+        id: signing
+        if: env.HAS_SIGNING_CERT == 'true'
+        env:
+          CERT_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/tokenamp-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          printf '%s' "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          # The Developer ID G2 intermediate, so the identity is valid even if the .p12 lacks it.
+          curl -fsSL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KEYCHAIN"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" -f pkcs12 -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          # Put it first in the search list (keeping the others) so codesign and notarytool find it.
+          SEARCH_LIST=()
+          while IFS= read -r kc; do SEARCH_LIST+=("$kc"); done \
+            < <(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//')
+          security list-keychains -d user -s "$KEYCHAIN" "${SEARCH_LIST[@]}"
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk '/"Developer ID Application: / { print $2; exit }')"
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::no valid 'Developer ID Application' identity in MACOS_CERTIFICATE_P12_BASE64"
+            security find-identity -p codesigning "$KEYCHAIN"
+            exit 1
+          fi
+          echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      - name: Store the notarization credentials
+        id: notary
+        if: env.HAS_NOTARY_CREDS == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          KEYCHAIN: ${{ steps.signing.outputs.keychain }}
+        run: |
+          if [ -z "$KEYCHAIN" ]; then
+            echo "::error::notarization secrets are set but MACOS_CERTIFICATE_P12_BASE64 is not; an ad-hoc signature cannot be notarized"
+            exit 1
+          fi
+          xcrun notarytool store-credentials tokenamp-notary \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --keychain "$KEYCHAIN"
+          echo "profile=tokenamp-notary" >> "$GITHUB_OUTPUT"
+
+      # Builds the universal app, signs/notarizes it when the steps above ran, zips it, and runs
+      # the app's --selftest from the unpacked zip (x86_64 too, under Rosetta).
+      - name: Package
+        id: package
+        env:
+          TOKENAMP_SIGN_IDENTITY: ${{ steps.signing.outputs.identity }}
+          TOKENAMP_SIGN_KEYCHAIN: ${{ steps.signing.outputs.keychain }}
+          TOKENAMP_NOTARY_PROFILE: ${{ steps.notary.outputs.profile }}
+          TOKENAMP_NOTARY_KEYCHAIN: ${{ steps.signing.outputs.keychain }}
+          TOKENAMP_REQUIRE_NOTARIZATION: ${{ env.HAS_NOTARY_CREDS == 'true' && '1' || '0' }}
+        run: scripts/package_release.sh
+
+      - name: "Test: app, from the release zip"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          NOTARIZED: ${{ steps.package.outputs.notarized }}
+        run: |
+          (cd dist && shasum -a 256 -c "Tokenamp-$VERSION.zip.sha256")
+          CHECK="$RUNNER_TEMP/release-check"
+          rm -rf "$CHECK" && mkdir -p "$CHECK"
+          ditto -x -k "dist/Tokenamp-$VERSION.zip" "$CHECK"
+          APP="$CHECK/Tokenamp.app"
+          codesign -dv "$APP"
+          codesign --verify --deep --strict "$APP"
+          lipo -info "$APP/Contents/MacOS/Tokenamp"
+          echo "Info.plist version: $(plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")"
+          "$APP/Contents/MacOS/Tokenamp" --selftest | tail -n 1
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            arch -x86_64 "$APP/Contents/MacOS/Tokenamp" --selftest | tail -n 1
+          fi
+          if [ "$NOTARIZED" = "true" ]; then
+            xcrun stapler validate "$APP"
+            spctl --assess --type execute --verbose=2 "$APP"
+          fi
+
+      # Body = packaging/release-notes/<tag>.md when it exists, then a generated block: download
+      # facts, the checksum, and first-launch steps while the build is not notarized.
+      - name: Write the release notes
+        id: notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          NOTARIZED: ${{ steps.package.outputs.notarized }}
+          SHA256: ${{ steps.package.outputs.sha256 }}
+          ARCHS: ${{ steps.package.outputs.archs }}
+        run: |
+          NOTES_FILE="packaging/release-notes/$GITHUB_REF_NAME.md"
+          ZIP="Tokenamp-$VERSION.zip"
+          case "$ARCHS" in
+            *arm64*x86_64* | *x86_64*arm64*) MACS="Apple silicon and Intel" ;;
+            *arm64*) MACS="Apple silicon only" ;;
+            *) MACS="$ARCHS" ;;
+          esac
+          {
+            if [ -f "$NOTES_FILE" ]; then
+              cat "$NOTES_FILE"
+              echo
+            fi
+            echo "**Download** \`$ZIP\`, unzip it and move Tokenamp.app to Applications. macOS 13 or later, $MACS."
+            echo
+            echo "**SHA-256** \`$SHA256\` (check with \`shasum -a 256 -c $ZIP.sha256\`)"
+            if [ "$NOTARIZED" != "true" ]; then
+              echo
+              echo "> [!IMPORTANT]"
+              echo "> This build is not notarized by Apple yet, so macOS blocks its first launch. Allow it once:"
+              echo ">"
+              echo "> - **macOS 15 and later:** open Tokenamp, click **Done**, then go to System Settings > Privacy & Security and click **Open Anyway** (right-click > Open no longer skips this check)."
+              echo "> - **macOS 13 and 14:** right-click Tokenamp.app, choose **Open**, then click **Open**."
+              echo "> - **Any version, in Terminal:** \`xattr -dr com.apple.quarantine /Applications/Tokenamp.app\`"
+            fi
+          } > "$RUNNER_TEMP/release-notes.md"
+          if [ -f "$NOTES_FILE" ]; then echo "curated=true" >> "$GITHUB_OUTPUT"; else echo "curated=false" >> "$GITHUB_OUTPUT"; fi
+          cat "$RUNNER_TEMP/release-notes.md"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          CURATED: ${{ steps.notes.outputs.curated }}
+        run: |
+          args=(--verify-tag --title "Tokenamp ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/release-notes.md")
+          # No curated notes for this tag: append GitHub's generated changelog.
+          if [ "$CURATED" != "true" ]; then args+=(--generate-notes); fi
+          if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/Tokenamp-$VERSION.zip" "dist/Tokenamp-$VERSION.zip.sha256" \
+            "${args[@]}"
+
+      - name: Remove the signing keychain
+        if: always() && steps.signing.outputs.keychain != ''
+        env:
+          KEYCHAIN: ${{ steps.signing.outputs.keychain }}
+        run: security delete-keychain "$KEYCHAIN" || true
