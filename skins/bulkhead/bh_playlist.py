@@ -281,7 +281,10 @@ class PlaylistMixin:
         M.hl(c, 42, 56, 25, P.LEGEND[1], 0.8)
         M.pset(c, 55, 24, P.LEGEND[1], 0.8)
         M.pset(c, 55, 26, P.LEGEND[1], 0.8)
-        silk(101, 23, "H:M", P.LEGEND[1])
+        # the readout auto-ranges (H:MM from an hour up, M:SS in the last hour),
+        # so it carries both range legends, stacked like the PL/04 tag
+        silk(101, 20, "H:M", P.LEGEND[1])
+        silk(101, 26, "M:S", P.LEGEND[1])
         silk(118, 10, "DAY", P.LEGEND[1])
         _socket(c, 117, 25)
 
