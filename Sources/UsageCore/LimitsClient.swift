@@ -182,6 +182,25 @@ final class LimitsClient {
     static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     static let allowedHost = "api.anthropic.com"
 
+    /// `Tokenamp/<version>` from the running bundle's `CFBundleShortVersionString`, which
+    /// `scripts/build_app.sh` writes from `VERSION`. A bare executable (`usage-dump`, `swift run`)
+    /// has no such key and sends `Tokenamp/dev`.
+    static let userAgent = makeUserAgent(
+        shortVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+
+    /// The header value for a given bundle version. Anything but a plain version token (digits,
+    /// letters, `.`, `-`, `+`, `_`) falls back to `dev`, so the plist cannot put arbitrary text
+    /// into a request header.
+    static func makeUserAgent(shortVersion: String?) -> String {
+        let allowed = CharacterSet(charactersIn: "0123456789.-+_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        guard let version = shortVersion?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !version.isEmpty, version.count <= 32,
+              version.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            return "Tokenamp/dev"
+        }
+        return "Tokenamp/" + version
+    }
+
     private let session: URLSession
     private let redirectDelegate = NoRedirectDelegate()
     /// Reading the keychain means running `/usr/bin/security`, which is a fork+exec and can block
@@ -232,7 +251,7 @@ final class LimitsClient {
         request.setValue("Bearer " + credential.accessToken, forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Tokenamp/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue(LimitsClient.userAgent, forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 15
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         request.httpShouldHandleCookies = false

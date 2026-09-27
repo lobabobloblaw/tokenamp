@@ -21,6 +21,7 @@ public enum SelfTest {
         limitsParsing(&runner)
         cacheRoundTrip(&runner)
         planNames(&runner)
+        userAgent(&runner)
         hostileCache(&runner)
         localTimeAndDST(&runner)
         clockSkew(&runner)
@@ -744,6 +745,22 @@ public enum SelfTest {
         r.equal(LimitsClient.planName(tier: "pro", subscription: nil), "PRO", "bare pro")
         r.equal(LimitsClient.planName(tier: nil, subscription: "max"), "MAX", "subscription fallback")
         r.equal(LimitsClient.planName(tier: nil, subscription: nil), "", "nothing known")
+    }
+
+    static func userAgent(_ r: inout Runner) {
+        r.section("User-Agent")
+        r.equal(LimitsClient.makeUserAgent(shortVersion: "1.0.0"), "Tokenamp/1.0.0", "bundle version is sent")
+        r.equal(LimitsClient.makeUserAgent(shortVersion: " 2.3.4-beta.1\n"), "Tokenamp/2.3.4-beta.1",
+                "surrounding whitespace is trimmed")
+        r.equal(LimitsClient.makeUserAgent(shortVersion: nil), "Tokenamp/dev", "no bundle version: dev")
+        r.equal(LimitsClient.makeUserAgent(shortVersion: ""), "Tokenamp/dev", "empty bundle version: dev")
+        r.equal(LimitsClient.makeUserAgent(shortVersion: "1.0\r\nX-Evil: 1"), "Tokenamp/dev",
+                "a version that is not a plain token is not put in a header")
+        // usage-dump is a bare executable with no Info.plist version, so this run must say dev.
+        let running = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        r.equal(LimitsClient.userAgent, LimitsClient.makeUserAgent(shortVersion: running),
+                "the header value is the running bundle's")
+        if running == nil { r.equal(LimitsClient.userAgent, "Tokenamp/dev", "usage-dump sends Tokenamp/dev") }
     }
 
     // MARK: - Cache round trip
