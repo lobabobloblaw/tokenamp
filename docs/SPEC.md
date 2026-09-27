@@ -540,7 +540,9 @@ upper-cased, remaining number parts joined with `.`).
   like any other error (A5).
 - Request: `GET https://api.anthropic.com/api/oauth/usage` with headers
   `Authorization: Bearer <token>`, `anthropic-beta: oauth-2025-04-20`, `Accept: application/json`,
-  `User-Agent: Tokenamp/1.0`. 15 s timeout, ephemeral `URLSession`, no cookies, no cache.
+  `User-Agent: Tokenamp/<CFBundleShortVersionString>` (the app bundle's version, from `VERSION`;
+  `Tokenamp/dev` for a bare executable such as `usage-dump`). 15 s timeout, ephemeral `URLSession`,
+  no cookies, no cache.
 - Response (verified on this account today), abridged:
   ```json
   {"five_hour":{"utilization":0.0,"resets_at":"2026-09-21T01:50:00.324734+00:00"},

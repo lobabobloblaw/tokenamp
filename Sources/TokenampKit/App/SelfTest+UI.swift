@@ -21,6 +21,7 @@ extension SelfTest {
         dockingOnTheArt(c)
         sessionsAutoFit(c)
         dockedBelowFollowsHeight(c)
+        snapshotIndicators(c, tmp: tmp)
     }
 
     private static func gauge(_ id: String, _ kind: LimitGauge.Kind, _ percent: Double,
@@ -632,5 +633,30 @@ extension SelfTest {
         c.check("Token Flow and the equalizer move as one", together)
         c.equal("the main window never moved", others[0], fixedMain)
         c.equal("back at 261 px, everything is where it started", others, started)
+    }
+
+    // MARK: - 10. Snapshots light the indicators of the default layout
+
+    /// `--snapshot` stills and `--frames` feed the README's default-layout images, so their window
+    /// indicators must be what the app shows on a first run: the EQ toggle unlit (the equalizer
+    /// starts closed), PL lit, V latched (Token Flow starts open), A not latched.
+    private static func snapshotIndicators(_ c: Checker, tmp: URL) {
+        c.section("snapshots: window indicators match the default layout")
+        let suite = tmp.appendingPathComponent("indicator-prefs-\(UUID().uuidString).plist").path
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            c.skip("snapshot indicators", "could not open a scratch defaults domain")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(defaults: defaults)
+        let snap = DemoUsageProvider(frozenAt: DemoUsageProvider.referenceDate).snapshot
+        let state = SnapshotRunner.makeState(snapshot: snap, scale: 1, now: DemoUsageProvider.referenceDate)
+
+        c.equal("EQ toggle follows the default (closed)", state.eqOpen, prefs.eqOpen)
+        c.equal("PL toggle follows the default (open)", state.plOpen, prefs.playlistOpen)
+        c.equal("latched clutter letters are the app's for the default windows", state.latchedClutter,
+                ViewState.latchedClutter(alwaysOnTop: prefs.alwaysOnTop, fieldOpen: prefs.fieldOpen))
+        c.check("so the EQ toggle is unlit", !state.eqOpen)
+        c.check("and V is latched", state.latchedClutter == ["V"])
     }
 }

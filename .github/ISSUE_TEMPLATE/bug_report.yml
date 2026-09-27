@@ -1,0 +1,59 @@
+name: Bug report
+description: Something in Tokenamp isn't working right
+labels: [bug]
+body:
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: e.g. macOS 15.1 Sequoia
+    validations:
+      required: true
+
+  - type: dropdown
+    id: chip
+    attributes:
+      label: Mac chip
+      options:
+        - Apple silicon (M1/M2/M3/M4)
+        - Intel
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Tokenamp version or commit
+      description: The git commit or tag you built from, if you know it
+      placeholder: e.g. a git SHA, or "built from main on <date>"
+    validations:
+      required: true
+
+  - type: input
+    id: skin
+    attributes:
+      label: Skin
+      placeholder: e.g. Bulkhead, Walnut 76, Amethyst, Bookcloth, Base, or a third-party .wsz
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead. Steps to reproduce help a lot.
+    validations:
+      required: true
+
+  - type: textarea
+    id: usage-dump
+    attributes:
+      label: usage-dump output (optional)
+      description: >
+        If you're comfortable, run `swift run usage-dump --once --no-live` and paste its output here -
+        it can help track down data-layer bugs. **Do not paste your OAuth token or any message
+        content.** The command itself never reads message text, but please double-check the
+        output before pasting.
+      render: text
+    validations:
+      required: false

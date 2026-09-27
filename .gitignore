@@ -4,6 +4,9 @@
 # SwiftPM scratch dirs (each worker/build uses its own --scratch-path) and the assembled app
 .build*/
 build/
+# Release packages from scripts/package_release.sh (published as GitHub Release assets).
+# Anchored: an unanchored dist/ would also ignore new skins in the tracked skins/dist/.
+/dist/
 *.xcodeproj/
 .swiftpm/
 

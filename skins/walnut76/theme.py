@@ -103,7 +103,8 @@ class Walnut76(w76_main.MainWindow, w76_eq.EqWindow, w76_playlist.PlaylistWindow
                 "Typefaces (all drawn for this skin): a humanist dial face for the\r\n"
                 "Sessions list (plfont), a teal VFD dot-matrix marquee face, slanted\r\n"
                 "VFD seven-segment numerals, and engraved panel and micro caps.\r\n"
-                "Author: Tokenamp\r\n")
+                "Author: Tokenamp\r\n"
+                "https://github.com/lobabobloblaw/tokenamp\r\n")
 
 
 THEME = Walnut76()

@@ -86,7 +86,8 @@ class Bookcloth(MainMixin, WidgetMixin, EqMixin, PlaylistMixin, FieldMixin, Them
                 "Typefaces (all drawn for this skin): a literary old-style serif for\r\n"
                 "the Sessions list (plfont), a 5x6 letterpress proofing face for the\r\n"
                 "marquee, 9x13 Clarendon time figures, and five-row small capitals.\r\n"
-                "Author: Tokenamp\r\n\r\n"
+                "Author: Tokenamp\r\n"
+                "https://github.com/lobabobloblaw/tokenamp\r\n\r\n"
                 "Fan-made tribute skin. Not affiliated with or endorsed by Anthropic.\r\n")
 
 

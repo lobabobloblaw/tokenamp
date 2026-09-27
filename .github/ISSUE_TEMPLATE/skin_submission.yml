@@ -1,0 +1,58 @@
+name: Skin submission
+description: Share a skin you made for Tokenamp (or classic Winamp)
+labels: [skin]
+body:
+  - type: input
+    id: name
+    attributes:
+      label: Skin name
+    validations:
+      required: true
+
+  - type: textarea
+    id: preview
+    attributes:
+      label: Preview image
+      description: Drag and drop a screenshot or preview PNG here (a window or two is fine; the whole lineup is even better).
+    validations:
+      required: true
+
+  - type: input
+    id: wsz-link
+    attributes:
+      label: .wsz link
+      description: A link to the .wsz file - a Gist, a release asset, a file host, whatever's easiest.
+      placeholder: https://...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: license
+    attributes:
+      label: License / permission
+      description: Tokenamp is MIT-licensed and public; please confirm before sharing.
+      options:
+        - label: This is my own original work, or I have permission to share it under an open license
+          required: true
+        - label: It doesn't reuse art, logos or wordmarks I don't have the rights to
+          required: true
+
+  - type: dropdown
+    id: skinkit
+    attributes:
+      label: Was this made with skinkit?
+      description: skinkit is Tokenamp's Python painting toolkit (skins/skinkit/). Third-party/hand-made .wsz files are just as welcome.
+      options:
+        - "Yes, built with skinkit (theme.py)"
+        - "No, made another way"
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Design notes, what it's a tribute to, known quirks, etc.
+    validations:
+      required: false

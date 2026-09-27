@@ -68,7 +68,8 @@ class Bulkhead(bh_main.MainMixin, bh_eq.EqMixin, bh_playlist.PlaylistMixin,
                 "Typefaces (all drawn for this skin): MU/TH 8 list face (plfont), CRT 5x6\r\n"
                 "marquee face, amber seven-segment tube numerals, 5x7 DIN stencil,\r\n"
                 "4x5 key legends, 3x5 inventory micro caps.\r\n"
-                "Author: Tokenamp\r\n")
+                "Author: Tokenamp\r\n"
+                "https://github.com/lobabobloblaw/tokenamp\r\n")
 
 
 THEME = Bulkhead()

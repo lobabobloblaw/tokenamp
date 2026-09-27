@@ -89,6 +89,18 @@ public enum Marquee {
         max(1, text.count * BitmapFont.glyphWidth)
     }
 
+    /// Scroll speed: one pixel per 40 ms (SPEC 3, "pick what looks right and keep it smooth").
+    public static let secondsPerPixel: TimeInterval = 0.04
+
+    /// The scroll offset `dt` seconds on from `offset`, wrapped into `0 ..< scrollWidth(text)`.
+    /// Fractional, so a frame rate that does not divide the speed still scrolls evenly; the
+    /// renderer takes the whole pixels.
+    public static func scrolled(_ offset: Double, by dt: TimeInterval, text: String) -> Double {
+        let width = Double(scrollWidth(text))
+        let next = (offset + dt / secondsPerPixel).truncatingRemainder(dividingBy: width)
+        return next < 0 ? next + width : next
+    }
+
     // MARK: - Hover readings (SPEC 2.5)
 
     public static func volumeReading(_ snapshot: UsageSnapshot, now: Date) -> String {

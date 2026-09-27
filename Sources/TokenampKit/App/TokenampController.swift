@@ -306,12 +306,10 @@ public final class TokenampController: NSObject {
             visMoved = zip(before, visualizer.bars).contains { abs($0 - $1) > 0.002 }
         }
 
-        // Marquee: 1 px per 40 ms (SPEC 3, "pick what looks right and keep it smooth").
+        // Marquee: 1 px per 40 ms (`Marquee.secondsPerPixel`).
         var marqueeMoved = false
         if hoverReading == nil, playState != .stopped, !marqueeText.isEmpty {
-            marqueeOffset += dt / 0.04
-            let width = Double(Marquee.scrollWidth(marqueeText))
-            if marqueeOffset >= width { marqueeOffset -= width }
+            marqueeOffset = Marquee.scrolled(marqueeOffset, by: dt, text: marqueeText)
             marqueeMoved = true
         }
 
@@ -387,9 +385,8 @@ public final class TokenampController: NSObject {
         s.fieldSpan = prefs.fieldSpan
         s.fieldWidth = prefs.fieldWidth
         s.fieldHeight = prefs.fieldHeight
-        var latched: Set<String> = prefs.alwaysOnTop ? ["A"] : []
-        if field?.isVisible == true { latched.insert("V") }
-        s.latchedClutter = latched
+        s.latchedClutter = ViewState.latchedClutter(alwaysOnTop: prefs.alwaysOnTop,
+                                                    fieldOpen: field?.isVisible == true)
         s.eqRange = prefs.eqRange
         s.eqMeasure = prefs.eqMeasure
         s.eqRelative = prefs.eqRelative

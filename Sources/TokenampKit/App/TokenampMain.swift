@@ -43,6 +43,13 @@ public enum TokenampMain {
 
     private static func runSnapshot(args: Arguments, directory: String,
                                     providerFactory: (Bool) -> UsageProvider) -> Int32 {
+        let fieldMode = args.resolvedFieldMode
+        if args.resolvedFrames != nil, fieldMode == nil {
+            let modes = FieldMode.allCases.map { $0.rawValue }.joined(separator: ", ")
+            FileHandle.standardError.write(Data("unknown --field \(args.field ?? ""); use one of: \(modes)\n".utf8))
+            return 2
+        }
+
         let loaded = SkinCatalog.load(args.skinPath ?? SkinCatalog.defaultSkinName)
         let skin = loaded.skin
         if let err = loaded.error { FileHandle.standardError.write(Data(("warning: " + err + "\n").utf8)) }
@@ -70,8 +77,19 @@ public enum TokenampMain {
         }
 
         do {
-            let result = try SnapshotRunner.run(directory: directory, skin: skin, snapshot: snapshot,
+            let result: SnapshotRunner.Result
+            if let frames = args.resolvedFrames, let mode = fieldMode {
+                // Demo data is a pure function of the clock, so the sequence gets fresh data as
+                // its clock runs; a live snapshot cannot be replayed and is held for the whole run.
+                let demo = args.demo
+                result = try SnapshotRunner.runFrames(
+                    directory: directory, skin: skin, count: frames, fps: args.resolvedFPS,
+                    scale: args.resolvedScale, fieldMode: mode, start: now,
+                    snapshotAt: { demo ? DemoUsageProvider.makeSnapshot(at: $0, live: true) : snapshot })
+            } else {
+                result = try SnapshotRunner.run(directory: directory, skin: skin, snapshot: snapshot,
                                                 scale: args.resolvedScale, stateName: args.state, now: now)
+            }
             print("skin: \(result.skinName)")
             for w in result.warnings { print("  warning: \(w)") }
             for f in result.files { print("wrote \(f.path)") }

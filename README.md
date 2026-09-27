@@ -12,12 +12,18 @@ A native macOS app with real classic <code>.wsz</code> skins, five of them hand-
 </p>
 
 <p align="center">
+  <a href="https://github.com/lobabobloblaw/tokenamp/releases/latest"><strong>Download for macOS</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/lobabobloblaw/tokenamp/actions/workflows/ci.yml"><img src="https://github.com/lobabobloblaw/tokenamp/actions/workflows/ci.yml/badge.svg" alt="CI" align="absmiddle"></a>
+</p>
+
+<p align="center">
   <img src="docs/images/lineup.png" alt="Tokenamp's default layout - the player, Sessions and Token Flow - in all five skins: Bulkhead, Walnut 76, Amethyst, Bookcloth and Base">
 </p>
 
 ## What you're looking at
 
-<img align="right" width="291" src="docs/images/hero.png" alt="The default layout in the Bulkhead skin">
+<img align="right" width="291" src="docs/images/demo.gif" alt="The default layout in the Bulkhead skin, running: the countdown ticks, the marquee scrolls and the Token Flow scope traces live activity">
 
 Every part of the player shows something about your plan:
 
@@ -40,21 +46,34 @@ move as one stack, the way Winamp's did.
 
 ## Install
 
-There is no prebuilt download. You build it with the Xcode Command Line Tools (full Xcode is not
-needed):
+Download `Tokenamp-<version>.zip` from the [latest release](https://github.com/lobabobloblaw/tokenamp/releases/latest),
+unzip it and move **Tokenamp** to Applications. It runs on Apple silicon and Intel Macs with
+macOS 13 or later.
+
+Tokenamp reads from a signed-in [Claude Code](https://claude.com/claude-code) on the same Mac.
+To try it on made-up data instead, run `/Applications/Tokenamp.app/Contents/MacOS/Tokenamp --demo`.
+
+### First launch
+
+Tokenamp isn't notarized by Apple yet, so macOS stops it the first time you open it. You allow it
+once per download.
+
+- **macOS 15 and later:** open Tokenamp, and click **Done** when macOS says it was not opened. Then
+  go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to
+  Tokenamp. (Right-click → Open no longer skips this check.)
+- **macOS 13 and 14:** right-click Tokenamp in Applications, choose **Open**, then **Open** again.
+- **From Terminal, any version:** `xattr -dr com.apple.quarantine /Applications/Tokenamp.app`.
+  Only do this for a copy from this repository's Releases page; each release lists its SHA-256.
+
+### Build from source
+
+You need only the Xcode Command Line Tools (full Xcode is not needed):
 
 ```sh
 git clone https://github.com/lobabobloblaw/tokenamp.git
 cd tokenamp
 scripts/build_app.sh
 cp -R build/Tokenamp.app /Applications/
-```
-
-Tokenamp reads from a signed-in [Claude Code](https://claude.com/claude-code) on the same Mac. To try
-it on made-up data instead:
-
-```sh
-build/Tokenamp.app/Contents/MacOS/Tokenamp --demo
 ```
 
 ## Privacy
@@ -118,6 +137,7 @@ Each carries its own bitmap fonts, so no system font appears inside the player. 
 
 ## Development
 
+Contributions are welcome, and new skins especially; see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 Start with [`docs/SPEC.md`](docs/SPEC.md), the contract for everything; its amendments at the top
 override older text. [`CLAUDE.md`](CLAUDE.md) has the commands and the architecture in one page.
 

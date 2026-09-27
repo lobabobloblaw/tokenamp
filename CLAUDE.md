@@ -15,7 +15,8 @@ and ad-hoc signed. Python 3 with `numpy` and `Pillow` for the skins.
 ## Commands
 
 ```sh
-scripts/build_app.sh [--debug]            # swift build (scratch .build-app) -> build/Tokenamp.app
+scripts/build_app.sh [--debug] [--universal]   # swift build (scratch .build-app) -> build/Tokenamp.app
+scripts/package_release.sh                # universal release zip -> dist/ (see packaging/README.md)
 build/Tokenamp.app/Contents/MacOS/Tokenamp --demo          # run on deterministic synthetic data
 
 # Tests: suites are compiled into the binaries; each runs whole (no per-test filter).
@@ -26,7 +27,9 @@ cd skins && python3 -m skinkit.selftest                    # Python painting too
 # Visual verification: offscreen PNGs, no Screen Recording permission needed
 build/Tokenamp.app/Contents/MacOS/Tokenamp --snapshot <dir> --demo --skin skins/dist/Walnut76.wsz --scale 2
 #   writes main/eq/playlist/shade/all.png and one field-<configuration>.png per Token Flow mode;
-#   --state pressed renders the alternate sprites; --at <unix-seconds> moves the demo clock
+#   --state pressed renders the alternate sprites; --at <unix-seconds> moves the demo clock;
+#   --frames N [--fps F] [--field <mode>] writes frame-NNNN.png of the running default layout
+#   instead (make_screenshots.py turns them into docs/images/demo.gif)
 
 # Data layer without UI
 swift run usage-dump --once | --json | --no-live      # --no-live never touches the API or credential
