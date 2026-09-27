@@ -80,6 +80,7 @@ public enum SelfTest {
         skinLoading(c, tmp: tmp)
         skinInputLimits(c, tmp: tmp)    // SelfTest+SkinInput.swift (amendment A8)
         rendering(c)
+        frameSequence(c)
         uiFixes(c, tmp: tmp)
 
         print("\n\(c.passed) passed, \(c.failed) failed, \(c.skipped) skipped")
@@ -203,6 +204,15 @@ public enum SelfTest {
         c.equal("wraps around", wrapped.count >= 3 ? wrapped[1].character : " ", "A")
         let negative = Marquee.visibleGlyphs(text: "ABCDE", offset: -5, width: 10)
         c.equal("negative offset wraps", negative.first?.character, "E")
+
+        // The scroll clock the live tick and `--frames` share.
+        c.close("one pixel per 40 ms", Marquee.scrolled(0, by: 0.04, text: "ABCDE"), 1)
+        c.close("a quarter second is 6.25 px", Marquee.scrolled(2, by: 0.25, text: "ABCDE"), 8.25)
+        c.close("wraps at the scroll width", Marquee.scrolled(24.5, by: 0.04, text: "ABCDE"), 0.5)
+        c.close("wraps however far it runs", Marquee.scrolled(3, by: 2, text: "ABCDE"), 3)
+        let long = String(repeating: "A", count: 200)
+        c.equal("25 fps is exactly one pixel a frame",
+                (0..<30).reduce(0.0) { o, _ in Marquee.scrolled(o, by: 1.0 / 25, text: long) }, 30)
 
         // Hover readings stay in the charset too.
         for reading in [Marquee.volumeReading(snap, now: DemoUsageProvider.referenceDate),
@@ -1007,6 +1017,70 @@ public enum SelfTest {
                 c.equal("scale \(scale)/\(mode.rawValue) size", img.width, Layout.Main.size.w * scale)
             }
         }
+    }
+
+    // MARK: - Frame sequences (--frames)
+
+    private static func frameSequence(_ c: Checker) {
+        c.section("frame sequences")
+        let start = DemoUsageProvider.referenceDate
+        let skin = Skin.base
+        let data: (Date) -> UsageSnapshot = { DemoUsageProvider.makeSnapshot(at: $0, live: true) }
+        func frames(_ count: Int, fps: Int = 25, mode: FieldMode = .scope, from: Date = start,
+                    warmup: TimeInterval? = nil) -> [CGImage] {
+            var out: [CGImage] = []
+            do {
+                try SnapshotRunner.renderFrames(skin: skin, count: count, fps: fps, scale: 1, fieldMode: mode,
+                                                start: from, warmup: warmup, snapshotAt: data) { index, image in
+                    if index == out.count { out.append(image) }
+                }
+            } catch {
+                c.check("frames render: \(error)", false)
+            }
+            return out
+        }
+
+        let run = frames(4)
+        c.equal("one image per frame, in order", run.count, 4)
+        guard run.count == 4 else { return }
+        c.check("later frames move", !samePixels(run[0], run[3]))
+        c.check("and are reproducible", samePixels(run[3], frames(4)[3]))
+
+        // With no warm-up, frame 0 is the still of the same instant, window for window.
+        let snap = data(start)
+        let state = SnapshotRunner.makeState(snapshot: snap, scale: 1, now: start,
+                                             playlistRowHeight: skin.playlistRowHeight)
+        let settled = FieldRenderer.settled(snapshot: snap, skin: skin, mode: .scope, span: state.fieldSpan,
+                                            width: state.fieldWidth, height: state.fieldHeight, now: start)
+        let still = try? SnapshotRunner.defaultLayout(skin: skin, snapshot: snap, state: state, scale: 1,
+                                                      field: settled.image, labels: settled.labels)
+        c.equal("the default layout's size", SkinPair(run[0].width, run[0].height),
+                SkinPair(Layout.Main.size.w, Layout.Main.size.h + state.playlistHeight + state.fieldHeight))
+        c.check("unwarmed frame 0 is the still", samePixels(frames(1, warmup: 0).first, still))
+
+        // The warm-up reaches the running display: a sequence started a second earlier shows the
+        // same field at the same instant, whatever its settled starting point was.
+        let early = frames(26, from: start.addingTimeInterval(-1))
+        if early.count == 26, let a = pixels(of: run[0]), let b = pixels(of: early[25]) {
+            let top = Layout.Main.size.h + state.playlistHeight
+            let well = FieldRenderer.canvasRect(width: state.fieldWidth, height: state.fieldHeight)
+            var differing = 0, lit = 0
+            for y in (top + well.y)..<(top + well.y + well.h) {
+                for x in well.x..<(well.x + well.w) {
+                    let p = a(x, y), q = b(x, y)
+                    if p != q { differing += 1 }
+                    if max(p.0, p.1, p.2) > 96 { lit += 1 }
+                }
+            }
+            c.check("the field is drawn (\(lit) lit pixels)", lit > well.w * well.h / 50)
+            c.check("the warm-up converges (\(differing) of \(well.w * well.h) pixels differ)",
+                    differing * 100 < well.w * well.h)
+        } else {
+            c.check("an earlier sequence renders", false)
+        }
+
+        c.check("every configuration animates without trapping",
+                FieldMode.allCases.allSatisfy { frames(3, fps: 60, mode: $0).count == 3 })
     }
 
     // MARK: - Token Flow (SPEC 2.9)

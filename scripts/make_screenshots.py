@@ -8,6 +8,9 @@ app draws -- offscreen, so it needs no Screen Recording permission.
 
 Writes ``docs/images/hero.png`` (one skin's default layout: main, Sessions and
 Token Flow stacked),
+``docs/images/demo.gif`` (that layout running for a few seconds: the marquee
+scrolling, the countdown ticking, the visualiser and the Token Flow field moving;
+from ``Tokenamp --snapshot --frames``),
 ``docs/images/lineup.png`` (that default layout in every skin, side by side),
 ``docs/images/social.png`` (the 1280x640 GitHub social preview: the icon, a
 wordmark set in the skin toolkit's own bitmap face, and two skins' stacks),
@@ -44,6 +47,17 @@ SCALE = 2
 PAD = 16
 BG = (22, 22, 24)
 
+#: demo.gif: 52 minutes before the demo's session window resets, so the time display counts
+#: down in MM:SS and ticks every second (with an hour or more left it reads HH:MM and would stand
+#: still for the whole loop), in the middle of a burst of work, so the live visualiser bars move
+ANIM_AT = 1_789_933_480
+ANIM_SECONDS = 6
+#: 25 fps is the marquee's own speed, one skin pixel a frame, and a whole number of GIF
+#: centiseconds (4) per frame
+ANIM_FPS = 25
+#: the Token Flow configuration it shows: scope, like hero.png and the app's default
+ANIM_FIELD = "scope"
+
 
 def snapshot(skin: str, into: Path, scale: int = SCALE) -> dict[str, Image.Image]:
     into.mkdir(parents=True, exist_ok=True)
@@ -54,6 +68,42 @@ def snapshot(skin: str, into: Path, scale: int = SCALE) -> dict[str, Image.Image
                     "--skin", str(wsz), "--scale", str(scale)],
                    check=True, capture_output=True)
     return {p.stem: Image.open(p).convert("RGB") for p in into.glob("*.png")}
+
+
+def animate(skin: str, into: Path) -> list[Path]:
+    """``Tokenamp --snapshot --frames``: the default layout running, one PNG per frame."""
+    into.mkdir(parents=True, exist_ok=True)
+    wsz = ROOT / "skins" / "dist" / f"{skin}.wsz"
+    if not wsz.is_file():
+        sys.exit(f"missing {wsz} -- run: python3 skins/build.py --all")
+    subprocess.run([str(APP), "--snapshot", str(into), "--demo", "--skin", str(wsz),
+                    "--scale", str(SCALE), "--at", str(ANIM_AT), "--field", ANIM_FIELD,
+                    "--frames", str(ANIM_SECONDS * ANIM_FPS), "--fps", str(ANIM_FPS)],
+                   check=True, capture_output=True)
+    return sorted(into.glob("frame-*.png"))
+
+
+def write_gif(frames: list[Path], out: Path) -> None:
+    """A looping GIF of ``frames``, each padded the way the stills are.
+
+    Every frame is mapped onto one shared palette, without dithering, so a pixel keeps the
+    same colour from frame to frame and the art stays pixel-crisp: dither would crawl, and
+    per-frame palettes would flicker. The palette is an octree over a sample of the frames;
+    it holds the skin's art and the phosphor ramp to within a few levels. One entry is left
+    free, and Pillow's ``optimize`` uses it to make each frame's unchanged pixels transparent
+    over the last, so a frame costs only what moved.
+    """
+    def framed(path: Path) -> Image.Image:
+        return stack([Image.open(path).convert("RGB")], gap=0)
+
+    sample = [framed(p) for p in frames[::max(1, len(frames) // 15)]]
+    sheet = Image.new("RGB", (sample[0].width, sample[0].height * len(sample)))
+    for i, im in enumerate(sample):
+        sheet.paste(im, (0, i * im.height))
+    palette = sheet.quantize(colors=255, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE)
+    indexed = [framed(p).quantize(palette=palette, dither=Image.Dither.NONE) for p in frames]
+    indexed[0].save(out, save_all=True, append_images=indexed[1:], duration=1000 // ANIM_FPS,
+                    loop=0, optimize=True, disposal=1)
 
 
 def stack(images: list[Image.Image], gap: int) -> Image.Image:
@@ -174,6 +224,9 @@ def main() -> None:
         # The default layout the app opens with: main, Sessions, Token Flow, flush.
         stack([hero["main"], hero["playlist"], hero["field-scope"]], gap=0).save(OUT / "hero.png")
         print(f"wrote {OUT / 'hero.png'}")
+
+        write_gif(animate(HERO, tmp / f"{HERO}-frames"), OUT / "demo.gif")
+        print(f"wrote {OUT / 'demo.gif'}")
 
         row([default_stack(shots[s]) for s in SKINS], gap=PAD * 2).save(OUT / "lineup.png")
         print(f"wrote {OUT / 'lineup.png'}")

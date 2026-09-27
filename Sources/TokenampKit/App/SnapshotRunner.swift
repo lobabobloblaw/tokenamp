@@ -91,6 +91,152 @@ public enum SnapshotRunner {
         return Result(files: files, warnings: skin.warnings, skinName: skin.name)
     }
 
+    // MARK: - Frame sequences (--frames)
+
+    /// The demo provider publishes twice a second (`DemoUsageProvider.start`), and the sequence
+    /// takes new data on the same beat, so it animates on the data the running app would have.
+    static let publishesPerSecond = 2
+
+    /// Render `count` frames of the default layout as it animates, `frame-0000.png` onwards, into
+    /// `directory`: frame `i` is the app `i / fps` seconds after `start`, with the clock, the data,
+    /// the marquee, the visualizer and the Token Flow persistence advanced the way the app's own
+    /// tick advances them (see `renderFrames`).
+    @discardableResult
+    public static func runFrames(directory: String, skin: Skin, count: Int, fps: Int, scale: Int,
+                                 fieldMode: FieldMode, start: Date,
+                                 snapshotAt: (Date) -> UsageSnapshot) throws -> Result {
+        let dir = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var files: [URL] = []
+        try renderFrames(skin: skin, count: count, fps: fps, scale: scale, fieldMode: fieldMode,
+                         start: start, snapshotAt: snapshotAt) { index, image in
+            let name = String(format: "frame-%04d.png", index)
+            try write(image, to: dir.appendingPathComponent(name), &files)
+        }
+        return Result(files: files, warnings: skin.warnings, skinName: skin.name)
+    }
+
+    /// How long the display runs before frame 0, by default: six time constants of the field's
+    /// slower (ghost) channel, the run `FieldRenderer.settle` also allows. A settled field is one
+    /// instant's trace; a running one also carries the trails of where the trace has just been,
+    /// and without this lead-in the first seconds of a sequence would show the one growing into
+    /// the other - and a looping animation would snap back to the settled trace on every loop.
+    static func warmup(snapshot: UsageSnapshot, mode: FieldMode, now: Date) -> TimeInterval {
+        FieldModulators(snapshot: snapshot, now: now).tail(for: mode) * 2.2 * 6
+    }
+
+    /// The frames `runFrames` writes, handed to `body` in order instead of to disk.
+    ///
+    /// The display starts `warmup` seconds before `start` (by default `warmup(snapshot:mode:now:)`)
+    /// from a settled state, as the app does at launch, and runs in steps of `1 / fps`: the data
+    /// on the provider's beat, the visualizer's bars and caps, the field's decay and beam. The
+    /// marquee is the exception: it starts at the head of its text on frame 0, so the first frame -
+    /// the one a paused animation shows - reads from the beginning. With no warm-up, frame 0 is
+    /// the still `run` renders for `start`.
+    ///
+    /// Deterministic: time comes only from `start` and the frame index, data only from
+    /// `snapshotAt`, and the visualizer's shimmer from its own seeded generator. The per-session
+    /// flow WEB would recover by diffing snapshots is left out, as it is in the stills, so a
+    /// sequence and a still of the same data agree.
+    public static func renderFrames(skin: Skin, count: Int, fps: Int, scale: Int,
+                                    fieldMode: FieldMode, start: Date, warmup lead: TimeInterval? = nil,
+                                    snapshotAt: (Date) -> UsageSnapshot,
+                                    _ body: (Int, CGImage) throws -> Void) throws {
+        let fps = max(1, fps)
+        let dt = 1 / Double(fps)
+        let rows = Layout.Main.visualizer.h
+        /// Frame `i`'s instant; negative frames are the warm-up.
+        func clock(_ i: Int) -> Date { start.addingTimeInterval(Double(i) / Double(fps)) }
+        /// The provider beat frame `i` falls in, counted from `start`.
+        func beat(_ i: Int) -> Int { Int((Double(i * publishesPerSecond) / Double(fps)).rounded(.down)) }
+
+        let lead = lead ?? warmup(snapshot: snapshotAt(start), mode: fieldMode, now: start)
+        let first = -Int((max(0, lead) * Double(fps)).rounded(.up))
+
+        var published = beat(first)
+        var snapshot = snapshotAt(clock(first))
+        var state = makeState(snapshot: snapshot, scale: scale, now: clock(first),
+                              playlistRowHeight: skin.playlistRowHeight)
+        state.fieldMode = fieldMode
+        var marqueeOffset = 0.0
+
+        let visualizer = VisualizerModel()
+        visualizer.settle(snapshot: snapshot, rows: rows)
+        let well = FieldRenderer.canvasRect(width: state.fieldWidth, height: state.fieldHeight)
+        let field = PhosphorField(width: well.w, height: well.h)
+        let metrics = FieldRenderer.labelMetrics(for: skin)
+        var labels = FieldRenderer.settle(into: field, snapshot: snapshot, mode: fieldMode,
+                                          span: state.fieldSpan, now: clock(first), metrics: metrics)
+        var elapsed = 0.0
+
+        for index in first..<max(0, count) {
+            let now = clock(index)
+            if index > first {
+                // One step of TokenampController.tick and FieldWindowController.animate.
+                if beat(index) != published {
+                    published = beat(index)
+                    snapshot = snapshotAt(start.addingTimeInterval(Double(published) / Double(publishesPerSecond)))
+                }
+                visualizer.advance(snapshot: snapshot, now: now, dt: dt, rows: rows)
+                let mods = FieldModulators(snapshot: snapshot, now: now)
+                elapsed += dt
+                field.decay(dt: dt, persistence: mods.tail(for: fieldMode))
+                labels = FieldGeometry.draw(fieldMode, into: field, snapshot: snapshot, mods: mods,
+                                            span: state.fieldSpan, flows: [:], t: elapsed, now: now,
+                                            metrics: metrics)
+                FieldGeometry.drawGraticule(field, fieldMode, mods)
+            }
+            guard index >= 0 else { continue }
+
+            if index > 0 { marqueeOffset = Marquee.scrolled(marqueeOffset, by: dt, text: state.marqueeText) }
+            // The app recomposes on every publish and every tick of the digits; the text is a
+            // function of the data and the clock, so composing it every frame comes to the same.
+            let text = Marquee.compose(snapshot: snapshot, heroIndex: state.heroIndex,
+                                       isPaused: false, isStopped: false, now: now)
+            if text != state.marqueeText {
+                state.marqueeText = text
+                if marqueeOffset > Double(Marquee.scrollWidth(text)) { marqueeOffset = 0 }
+            }
+
+            state.now = now
+            state.visBars = visualizer.bars
+            state.visPeaks = visualizer.peaks
+            state.visScope = VisualizerModel.scope(snapshot)
+            state.marqueeOffset = Int(marqueeOffset)
+            let pressure = FieldModulators(snapshot: snapshot, now: now).pressure
+            let image = try defaultLayout(skin: skin, snapshot: snapshot, state: state, scale: scale,
+                                          field: field.makeImage(skin: skin, pressure: pressure),
+                                          labels: labels)
+            try body(index, image)
+        }
+    }
+
+    /// The layout the app opens with: main, Sessions and Token Flow, docked flush in one column
+    /// (the EQ starts closed), each window centred on the widest.
+    static func defaultLayout(skin: Skin, snapshot: UsageSnapshot, state: ViewState, scale: Int,
+                              field: CGImage?, labels: [FieldLabel]) throws -> CGImage {
+        let windows: [(size: SkinPair, draw: (SkinCanvas) -> Void)] = [
+            (Layout.Main.size, { MainRenderer.draw($0, skin: skin, snapshot: snapshot, state: state) }),
+            (SkinPair(state.playlistWidth, state.playlistHeight),
+             { PlaylistRenderer.draw($0, skin: skin, snapshot: snapshot, state: state) }),
+            (SkinPair(state.fieldWidth, state.fieldHeight),
+             { FieldRenderer.draw($0, skin: skin, snapshot: snapshot, state: state, field: field, labels: labels) }),
+        ]
+        let width = windows.map { $0.size.w }.max() ?? 0
+        let height = windows.reduce(0) { $0 + $1.size.h }
+        return try render(width: width, height: height, scale: scale) { c in
+            var y = 0
+            for window in windows {
+                c.save()
+                c.ctx.translateBy(x: CGFloat((width - window.size.w) / 2), y: CGFloat(y))
+                c.clip(to: SpriteRect(0, 0, window.size.w, window.size.h))
+                window.draw(c)
+                c.restore()
+                y += window.size.h
+            }
+        }
+    }
+
     /// The deterministic view state a snapshot renders: settled visualizer, marquee at the start,
     /// and the Sessions window at the height auto-fit gives this data at the skin's row pitch
     /// (SPEC 2.4, amendment A7) - uncapped, as there is no screen offscreen.

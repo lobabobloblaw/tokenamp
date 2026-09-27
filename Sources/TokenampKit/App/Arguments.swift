@@ -10,6 +10,9 @@ public struct Arguments {
     public var demo = false
     public var at: Date?
     public var state: String?
+    public var frames: Int?
+    public var fps: Int?
+    public var field: String?
     public var help = false
     public var unknown: [String] = []
 
@@ -28,6 +31,13 @@ public struct Arguments {
       --demo               use DemoUsageProvider instead of live data
       --at <unix-seconds>  freeze the demo clock (default DemoUsageProvider.referenceDate)
       --state <name>       snapshot variant: normal (default) or pressed
+      --frames <N>         with --snapshot: instead of the stills, N frames of the default
+                           layout (main, Sessions, Token Flow) running from the snapshot's
+                           instant (--at with --demo), as frame-0000.png onwards
+      --fps <F>            frames per second of the --frames clock (default 25: the marquee's
+                           speed, one pixel a frame)
+      --field <mode>       the Token Flow configuration --frames shows: scope (default),
+                           strata, web, orbit or phase
     """
 
     public init(_ argv: [String]) {
@@ -47,6 +57,9 @@ public struct Arguments {
             case "--demo": demo = true
             case "--at": at = next().flatMap { Double($0) }.map { Date(timeIntervalSince1970: $0) }
             case "--state": state = next()
+            case "--frames": frames = next().flatMap { Int($0) }
+            case "--fps": fps = next().flatMap { Int($0) }
+            case "--field": field = next()
             case "--help", "-h": help = true
             default:
                 // Anything AppKit/launchd hands us (-NSDocumentRevisions...) is ignored.
@@ -60,6 +73,18 @@ public struct Arguments {
     /// typo cannot ask for a multi-gigabyte bitmap.
     public static let maximumScale = 16
     public var resolvedScale: Int { min(Arguments.maximumScale, max(1, scale ?? 2)) }
+
+    /// `--frames` and `--fps`, capped like the scale: a typo must not ask for a million PNGs.
+    public static let maximumFrames = 3_600
+    public static let maximumFPS = 60
+    public var resolvedFrames: Int? { frames.map { min(Arguments.maximumFrames, max(1, $0)) } }
+    public var resolvedFPS: Int { min(Arguments.maximumFPS, max(1, fps ?? 25)) }
+
+    /// The Token Flow configuration `--frames` shows; nil when `--field` names none.
+    public var resolvedFieldMode: FieldMode? {
+        guard let field else { return .scope }
+        return FieldMode(rawValue: field.lowercased())
+    }
 
     /// The clock a demo run should use.
     public var demoClock: Date { at ?? DemoUsageProvider.referenceDate }

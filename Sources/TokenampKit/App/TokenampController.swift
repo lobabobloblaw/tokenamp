@@ -306,12 +306,10 @@ public final class TokenampController: NSObject {
             visMoved = zip(before, visualizer.bars).contains { abs($0 - $1) > 0.002 }
         }
 
-        // Marquee: 1 px per 40 ms (SPEC 3, "pick what looks right and keep it smooth").
+        // Marquee: 1 px per 40 ms (`Marquee.secondsPerPixel`).
         var marqueeMoved = false
         if hoverReading == nil, playState != .stopped, !marqueeText.isEmpty {
-            marqueeOffset += dt / 0.04
-            let width = Double(Marquee.scrollWidth(marqueeText))
-            if marqueeOffset >= width { marqueeOffset -= width }
+            marqueeOffset = Marquee.scrolled(marqueeOffset, by: dt, text: marqueeText)
             marqueeMoved = true
         }
 
